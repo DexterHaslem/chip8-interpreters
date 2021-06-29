@@ -2,9 +2,12 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdbool.h>
 
 
 #define TEST_ROM_FILE ("roms/maze.ch8")
+
+static bool done = false;
 
 /* regs V0 - V15 */
 static uint8_t v[016];
@@ -31,6 +34,7 @@ static uint16_t pc; /* program counter */
 /* current opcode */
 static uint16_t op;
 
+static uint16_t rom_size = 0;
 
 static void c8_load_rom(const char* filename)
 {
@@ -47,14 +51,15 @@ static void c8_load_rom(const char* filename)
 
     if (fsz > 4096 - 512)
     {
-        fprintf(stderr, "c8_load_rom: file is too big: %lu\n", fsz);
+        fprintf(stderr, "c8_load_rom: file is too big: %zu\n", fsz);
     }
     else if (fsz > 0)
     {
         /* made sure its not too big, skip first sector */
         uint8_t* pmem1 = &mem[512];
         fread(pmem1, 1, fsz, f);
-        printf("c8_load_rom: loaded rom %s into memory (%lu bytes)\n", filename, fsz);
+        printf("c8_load_rom: loaded rom %s into memory (%zu bytes)\n", filename, fsz);
+        rom_size = (uint16_t)fsz;
     }
     fclose(f);
 }
@@ -63,16 +68,58 @@ static void c8_load_rom(const char* filename)
 static void c8_read_op(void)
 {
     op = (mem[pc] << 8) + mem[pc + 1];
+    printf("c8_read_op: pc=%u op=%04x\n", pc, op);
 }
 
 /* take a look at whatever is current in op and act upon it. updates pc */
 static void c8_decode_op(void)
 {
-    /* 'god' switch here for now */
-    uint8_t n1 = (op & 0xf000) << 8;
-    uint8_t n2 = (op & 0x0f00) << 8;
-    uint8_t n3 = (op & 0x00f0);
-    uint8_t n4 = (op & 0x000f);
+    /* hi byte hi nibble / lo nibble */
+    uint8_t hinh = (op & 0xf000) >> 12;
+    uint8_t hinl = (op & 0x0f00) >> 8;
+
+    uint8_t hi = (op & 0xff00) >> 8;
+    uint8_t lo = op & 0x00ff;
+
+    uint8_t lonh = lo & 0xf0;
+    uint8_t lonl = lo & 0x0f;
+
+    switch (hinh) /* get us most the way with the highest nibble */
+    {
+    case 0:
+        break;
+    case 1:
+        break;
+    case 2:
+        break;
+    case 3:
+        break;
+    case 4:
+        break;
+    case 5:
+        break;
+    case 6:
+        break;
+    case 7:
+        break;
+    case 8:
+        break;
+    case 9: 
+        break;
+    case 0xa:
+        break;
+    case 0xb:
+        break;
+    case 0xc:
+        break;
+    case 0xd:
+        break;
+    case 0xe:
+        break;
+    case 0xf:
+        break;
+    }
+    
 }
 
 static void c8_timers(void)
@@ -95,6 +142,9 @@ static void c8_cycle(void)
     c8_decode_op();
 
     c8_timers();
+    /* HACK: run through rom ops linearly debugging*/
+    pc += 2;
+    done = pc - 512 >= rom_size || pc >= 4096;
 }
 
 static void c8_init(void)
@@ -130,15 +180,18 @@ static void c8_display(void)
         {
             printf("\n");
         }
-        /* dont have to worry about height, we naturally run to end of bmp */
+        /* /dont have to worry about height, we naturally run to end of bmp */
     }
-#endif
+#endif/
 }
 int main(int argc, char** argv)
 {
+    c8_init();
     c8_load_rom(TEST_ROM_FILE);
-    memset(screenb, 0xAA, 256);
-    //screenb[3] = 0xFF;
-    c8_display();
+
+    while (!done)
+    {
+        c8_cycle();
+    }
     return 0;
 }
