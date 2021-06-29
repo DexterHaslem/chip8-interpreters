@@ -1,6 +1,10 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <string.h>
+
+
+#define TEST_ROM_FILE ("roms/maze.ch8")
 
 /* regs V0 - V15 */
 static uint8_t v[016];
@@ -27,6 +31,34 @@ static uint16_t pc; /* program counter */
 /* current opcode */
 static uint16_t op;
 
+
+static void c8_load_rom(const char* filename)
+{
+    FILE *f = fopen(filename, "rb");
+    if (!f)
+    {
+        fprintf(stderr, "c8_load_rom: failed to open file '%s'!\n", filename);
+        return;
+    }
+    
+    fseek(f, 0, SEEK_END);
+    size_t fsz = ftell(f);
+    fseek(f, 0, SEEK_SET);
+
+    if (fsz > 4096 - 512)
+    {
+        fprintf(stderr, "c8_load_rom: file is too big: %lu\n", fsz);
+    }
+    else if (fsz > 0)
+    {
+        /* made sure its not too big, skip first sector */
+        uint8_t* pmem1 = &mem[512];
+        fread(pmem1, 1, fsz, f);
+        printf("c8_load_rom: loaded rom %s into memory (%lu bytes)\n", filename, fsz);
+    }
+    fclose(f);
+}
+
 /* reads current program counter (pc) position into op - does NOT update pc */
 static void c8_read_op(void)
 {
@@ -37,16 +69,17 @@ static void c8_read_op(void)
 static void c8_decode_op(void)
 {
     /* 'god' switch here for now */
+    uint8_t n1 = (op & 0xf000) << 8;
+    uint8_t n2 = (op & 0x0f00) << 8;
+    uint8_t n3 = (op & 0x00f0);
+    uint8_t n4 = (op & 0x000f);
 }
 
 static void c8_timers(void)
 {
     if (snd)
     {
-        if (snd == 1)
-        {
-            /* buzzer here */
-        }
+        /* buzzer here */
         --snd;
     }
 
@@ -103,6 +136,7 @@ static void c8_display(void)
 }
 int main(int argc, char** argv)
 {
+    c8_load_rom(TEST_ROM_FILE);
     memset(screenb, 0xAA, 256);
     //screenb[3] = 0xFF;
     c8_display();
