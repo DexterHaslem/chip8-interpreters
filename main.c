@@ -40,6 +40,15 @@ static uint16_t op;
 
 static uint16_t rom_size = 0;
 
+static void c8_display_sprite(uint8_t x, uint8_t y, uint8_t nbytes)
+{
+    printf("c8_display_sprite: x = %x y = %x nbytes=%x\n", x, y, nbytes);
+    /* start at addr i - sprites are xor'd onto existing screen. 
+    if any pixels go from 1 to 0, VF = 1, otherwise 0. if written outside, it wraps around to opposite side */
+    /* TODO - */
+    *vf = 0;
+}
+
 static void c8_fatal(void)
 {
     /* DEBUG HOOK */
@@ -81,8 +90,15 @@ static void c8_read_op(void)
     printf("c8_read_op: pc=%u op=%04x\n", pc, op);
 }
 
-static void c8_handle_eightop(uint8_t x, uint8_t y, uint8_t eightop)
+static void c8_handle_fop(uint8_t x, uint8_t lobyte)
 {
+    printf("c8_handle_fop: x=%x y=%x op=%x\n", x, y, lobyte);
+}
+
+static void c8_handle_8op(uint8_t x, uint8_t y, uint8_t eightop)
+{
+    printf("c8_handle_8op: x=%x y=%x op=%x\n", x, y, eightop);
+
     /* 0x8xyN has lots of ops - handle here */
     switch (eightop)
     {
@@ -120,7 +136,7 @@ static void c8_handle_eightop(uint8_t x, uint8_t y, uint8_t eightop)
         break;
     case 0xe:
         /* TODO: check if flag is before or after */
-        vf = (v[x] & 128) != 0;
+        *vf = (v[x] & 128) != 0;
         v[x] = v[x] << 1;
         break;
     }
@@ -131,16 +147,15 @@ static void c8_decode_op(void)
 {
     /*  hi nibble / lo nibble - dont forget its big endian */
     uint8_t nib1 = (op & 0xf000) >> 12;
-    uint8_t nib2 = (op & 0x0f00) >> 8;
-
-    uint8_t hibyte = (op & 0xff00) >> 8;
     uint8_t lobyte = op & 0x00ff;
 
 	uint16_t nnn = op & 0x0fff;
-	uint8_t x = op & 0x0f00 >> 8;
-	uint8_t y = op & 0x00f0 >> 4;
- 
+	uint8_t x = (op & 0x0f00) >> 8;
+	uint8_t y = (op & 0x00f0) >> 4;
+    uint8_t last_nib = op & 0x000f;
     uint16_t pc_start = pc;
+
+	printf("c8_decode_op: ");
 
     /* most opcodes can be completely keyed off first nibble */
     switch (nib1)
@@ -153,12 +168,15 @@ static void c8_decode_op(void)
         {
             if (lobyte == 0xe0)
             {
-                c8_cls();
+				printf("cls\n");
+                memset(&screenb, 0, sizeof(screenb));
             }
             else if (lobyte == 0xee)
             {
+                printf("ret\n");
                 /* ret - pop stack */
-                c8_ret();
+                pc = stack[sp];
+                --sp;
             }
             /* 0nnn - SYS not implemented */
         }
@@ -167,26 +185,37 @@ static void c8_decode_op(void)
     {
         /* goto 0xNNN */
         pc = nnn;
+		printf("goto 0x%03x\n", nnn);
         break;
     }
     case 2:
     {
         /* call subroutine at 0xNNN */
         ++sp;
-        stack[sp] = pc; /* TODO: check this needs to be incr before? */
-        pc = nnn;
+        if (sp > 15)
+        {
+            /* stack too big */
+            c8_fatal();
+        }
+        else
+        {
+            printf("call 0x%03x\n", nnn);
+            stack[sp] = pc; /* TODO: check this needs to be incr before? */
+            pc = nnn;
+        }
         break;
     }
     case 3:
     case 4: /* intentional fallthrough */
     {
         uint8_t cmp = op & 0xff;
+        printf("skip next if v%x %s 0x%02x\n", x, nib1 == 3 ? "==" : "!=", cmp);
         if (x >= C8_REG_MAX_IDX)
         {
             /* err */
             c8_fatal();
         }
-        else if ((op == 3 && v[x] == cmp) || (op == 4 && v[x] != cmp))
+        else if ((nib1 == 3 && v[x] == cmp) || (nib1 == 4 && v[x] != cmp))
         {
 		    pc += 4;
         }
@@ -194,11 +223,12 @@ static void c8_decode_op(void)
     }
     case 5:
     {
-       if (x == y)
-        {
-            pc += 4;
-        }
-        break;
+        printf("skip next if v%x == v%x\n", x, y);
+		if (x == y)
+		{
+			pc += 4;
+		}
+		break;
     }
     case 6:
     {
@@ -208,6 +238,7 @@ static void c8_decode_op(void)
         }
         else
         {
+            printf("v%x = %x\n", x, lobyte);
             v[x] = lobyte;
         }
         break;
@@ -220,27 +251,78 @@ static void c8_decode_op(void)
         }
         else
         {
+            printf("v%x = v%x + %x\n", x, x, lobyte);
             v[x] = v[x] + lobyte;
         }
         break;
     }
     case 8:
-        uint8_t eight_nib = op & 0x000f;
-        c8_handle_eightop(x, y, eight_nib);
+        c8_handle_8op(x, y, last_nib);
         break;
     case 9: 
+        if (x >= C8_REG_MAX_IDX || y >= C8_REG_MAX_IDX)
+        {
+            c8_fatal();
+        }
+        printf("skip next if v%x != v%x\n", x, y);
+        if (v[x] != v[y])
+        {
+            pc += 4;
+        }
         break;
     case 0xa:
+        printf("I = 0x%03x\n", nnn);
+        i = nnn;
         break;
     case 0xb:
+        /* jmp to nnn + v0 - check if we need to multiply v[0] */
+        printf("jmp to 0x%03x\n", nnn);
+        pc = nnn + v[0];
         break;
     case 0xc:
+    {
+        /* vx = random byte & kk */
+        if (x >= C8_REG_MAX_IDX)
+        {
+            c8_fatal();
+        }
+        int rv = rand() % 256;
+        printf("v%x = randbyte & 0x%02x\n", x, lobyte);
+        v[x] = rv & lobyte;
         break;
+    }
     case 0xd:
+        if (x >= C8_REG_MAX_IDX || y >= C8_REG_MAX_IDX)
+        {
+            c8_fatal();
+        }
+        c8_display_sprite(v[x], v[y], last_nib);
         break;
     case 0xe:
+        if (lobyte == 0x9e)
+        {
+            /* skip next if key w/ value of vx pressed */
+            if (x >= C8_REG_MAX_IDX)
+            {
+                c8_fatal();
+            }
+            printf("skip next if key %x pressed\n", x);
+            /* TODO: */
+        }
+        else if (lobyte == 0xa1)
+        {
+            /* skip next instructino if key with value of vx is not pressed */
+            if (x >= C8_REG_MAX_IDX)
+            {
+                c8_fatal();
+            }
+
+            printf("skip next if key %x not pressed\n", x);
+            /* TODO: */
+        }
         break;
     case 0xf:
+        c8_handle_fop(x, lobyte);
         break;
     }
 
@@ -320,6 +402,8 @@ static void c8_display(void)
 
 int main(int argc, char** argv)
 {
+    (void*)argc;
+    (void*)argv;
     c8_init();
     c8_load_rom(TEST_ROM_FILE);
 
