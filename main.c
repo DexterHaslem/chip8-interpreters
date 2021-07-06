@@ -18,8 +18,11 @@ static uint8_t* vf = &v[15];
 /* main memory 0x1000*/
 static uint8_t mem[4096];
 
-/* monochrome 64x32 - we can just bitmap, this would be 2048 chars otherwise. just use 256 bytes and bitmap it */
+/* monochrome 64x32 - we can just bitmap, this would be 2048 chars otherwise.
+just use 256 bytes and bitmap it
+STRIDE: just logical display order 64 bit per line */
 static uint8_t screenb[256];
+static bool gfx_dirty = false;
 
 /* countdown timers - */
 static uint8_t delay;
@@ -43,10 +46,41 @@ static uint16_t rom_size = 0;
 static void c8_display_sprite(uint8_t x, uint8_t y, uint8_t nbytes)
 {
     printf("c8_display_sprite: x = %x y = %x nbytes=%x\n", x, y, nbytes);
-    /* start at addr i - sprites are xor'd onto existing screen. 
-    if any pixels go from 1 to 0, VF = 1, otherwise 0. if written outside, it wraps around to opposite side */
-    /* TODO - */
-    *vf = 0;
+
+    /* nbytes effectively is height of sprite */
+    uint8_t x_wrap = x % 64;
+    uint8_t y_wrap = y % 32;
+
+    bool any_erased = false;
+    /* TODO: check wrap */
+    /* current byte in stride (8 pixels) */
+    uint8_t pv;
+    for (uint8_t line = 0; line < nbytes; ++line)
+    {
+        pv = mem[i + line];
+        for (uint8_t xv = 0; xv < 8; ++xv)
+        {
+            /* look at each bit each this byte for stride, from left to right -  if set*/
+            if ((pv & (0x80 >> xv)) != 0)
+            {
+                /* check first before we xor value so we can correctly set v flag for entire call*/
+                /* TODO: this does not seem right at all */
+                uint8_t bx = x_wrap + xv + ((y_wrap + line) * 64);
+                /* TODO: cehck wrapping from y height/going over edge too .. */
+
+                /* if something is set, we're about to clear it*/
+                if (screenb[bx] == 1 && !any_erased)
+                {
+                    any_erased = true;
+                }
+                screenb[bx] ^= 1;
+            }
+
+        }
+    }
+    /* if any pixels go from 1 to 0, VF = 1, otherwise 0. if written outside, it wraps around to opposite side */
+    *vf = any_erased ? 0 : 1;
+    gfx_dirty = true;
 }
 
 static void c8_fatal(void)
@@ -83,13 +117,6 @@ static void c8_load_rom(const char* filename)
     fclose(f);
 }
 
-/* reads current program counter (pc) position into op - does NOT update pc */
-static void c8_read_op(void)
-{
-    op = (mem[pc] << 8) + mem[pc + 1];
-    printf("c8_read_op: pc=%u op=%04x\n", pc, op);
-}
-
 static void c8_handle_fop(uint8_t x, uint8_t lobyte)
 {
     printf("c8_handle_fop: x=%x op=%x\n", x, lobyte);
@@ -120,7 +147,10 @@ static void c8_handle_fop(uint8_t x, uint8_t lobyte)
         /* TODO: I = location of sprite for digit v[x] ?? font  */
         break;
     case 0x33:
-        /* TODO: store bcd of v[x] in i, i+1, i+2 */
+        /* store bcd of v[x] in i, i+1, i+2 */
+        mem[i] = (v[x] / 100) % 10;
+        mem[i + 1] = (v[x] / 10) % 10;
+        mem[i + 2] = v[x] % 10;
         break;
     case 0x55:
         /* store V0 .. Vx into memory starting at i */
@@ -189,6 +219,10 @@ static void c8_handle_8op(uint8_t x, uint8_t y, uint8_t eightop)
 /* take a look at whatever is current in op and act upon it. updates pc */
 static void c8_decode_op(void)
 {
+    op = (mem[pc] << 8) + mem[pc + 1];
+    /* we read it, increment right away. makes jumping around below easier */
+    pc += 2;
+
     /*  hi nibble / lo nibble - dont forget its big endian */
     uint8_t nib1 = (op & 0xf000) >> 12;
     uint8_t lobyte = op & 0x00ff;
@@ -197,9 +231,8 @@ static void c8_decode_op(void)
 	uint8_t x = (op & 0x0f00) >> 8;
 	uint8_t y = (op & 0x00f0) >> 4;
     uint8_t last_nib = op & 0x000f;
-    uint16_t pc_start = pc;
 
-	printf("c8_decode_op: ");
+    printf("c8_decode_op: ");
 
     /* most opcodes can be completely keyed off first nibble */
     switch (nib1)
@@ -261,7 +294,8 @@ static void c8_decode_op(void)
         }
         else if ((nib1 == 3 && v[x] == cmp) || (nib1 == 4 && v[x] != cmp))
         {
-		    pc += 4;
+            /* skip next */
+		    pc += 2;
         }
         break;
     }
@@ -270,7 +304,8 @@ static void c8_decode_op(void)
         printf("skip next if v%x == v%x\n", x, y);
 		if (x == y)
 		{
-			pc += 4;
+            /* skip next */
+			pc += 2;
 		}
 		break;
     }
@@ -369,12 +404,6 @@ static void c8_decode_op(void)
         c8_handle_fop(x, lobyte);
         break;
     }
-
-    /* normal exec: if pc is same, update by one inst */
-    if (pc == pc_start)
-    {
-        pc += 2;
-    }
 }
 
 static void c8_timers(void)
@@ -393,7 +422,6 @@ static void c8_timers(void)
 
 static void c8_cycle(void)
 {
-    c8_read_op();
     c8_decode_op();
 
     c8_timers();
