@@ -93,6 +93,50 @@ static void c8_read_op(void)
 static void c8_handle_fop(uint8_t x, uint8_t lobyte)
 {
     printf("c8_handle_fop: x=%x op=%x\n", x, lobyte);
+    if (x >= C8_REG_MAX_IDX)
+    {
+        c8_fatal();
+    }
+
+    switch (lobyte)
+    {
+    case 0x07:
+        v[x] = delay;
+        break;
+    case 0x0a:
+        /* TODO: wait for keypress*/
+        v[x] = 0x00;
+        break;
+    case 0x15:
+        delay = v[x];
+        break;
+    case 0x18:
+        snd = v[x];
+        break;
+    case 0x1e:
+        i += v[x];
+        break;
+    case 0x29:
+        /* TODO: I = location of sprite for digit v[x] ?? font  */
+        break;
+    case 0x33:
+        /* TODO: store bcd of v[x] in i, i+1, i+2 */
+        break;
+    case 0x55:
+        /* store V0 .. Vx into memory starting at i */
+        for (uint8_t c = 0; c <= x; ++c)
+        {
+            mem[i + c] = v[c];
+        }
+        break;
+    case 0x65:
+        /* load V0 .. Vx from memory starting at i */
+        for (uint8_t c = 0; c <= x; ++c)
+        {
+            v[c] = mem[i + c];
+        }
+        break;
+    }
 }
 
 static void c8_handle_8op(uint8_t x, uint8_t y, uint8_t eightop)
