@@ -11,8 +11,10 @@
 
 static bool done = false;
 
-/* regs V0 - V15 */
+/* regs V0 - V15  (VF in hex). VF is flag register*/
 static uint8_t v[16];
+static uint8_t* vf = &v[15];
+
 /* main memory 0x1000*/
 static uint8_t mem[4096];
 
@@ -79,6 +81,51 @@ static void c8_read_op(void)
     printf("c8_read_op: pc=%u op=%04x\n", pc, op);
 }
 
+static void c8_handle_eightop(uint8_t x, uint8_t y, uint8_t eightop)
+{
+    /* 0x8xyN has lots of ops - handle here */
+    switch (eightop)
+    {
+    case 0:
+        v[x] = v[y];
+        break;
+    case 1:
+        v[x] = v[x] | v[y];
+        break;
+    case 2:
+        v[x] = v[x] & v[y];
+        break;
+    case 3:
+        v[x] = v[x] ^ v[y];
+        break;
+    case 4:
+        bool carry = v[x] + v[y] > 255;
+        *vf = carry;
+        v[x] = v[x] + v[y];
+        break;
+    case 5:
+        bool borrow = v[x] > v[y];
+        *vf = borrow;
+        v[x] = v[x] - v[y];
+        break;
+    case 6:
+        /* TODO: check if flag is before or after */
+        *vf = (v[x] & 1) == 1;
+        v[x] = v[x] >> 1;
+        break;
+    case 7:
+        bool nborrow = v[y] > v[x];
+        *vf = nborrow;
+        v[x] = v[y] - v[x];
+        break;
+    case 0xe:
+        /* TODO: check if flag is before or after */
+        vf = (v[x] & 128) != 0;
+        v[x] = v[x] << 1;
+        break;
+    }
+}
+
 /* take a look at whatever is current in op and act upon it. updates pc */
 static void c8_decode_op(void)
 {
@@ -89,8 +136,10 @@ static void c8_decode_op(void)
     uint8_t hibyte = (op & 0xff00) >> 8;
     uint8_t lobyte = op & 0x00ff;
 
-	uint16_t nnn = op & 0xfff;
-
+	uint16_t nnn = op & 0x0fff;
+	uint8_t x = op & 0x0f00 >> 8;
+	uint8_t y = op & 0x00f0 >> 4;
+ 
     uint16_t pc_start = pc;
 
     /* most opcodes can be completely keyed off first nibble */
@@ -131,7 +180,6 @@ static void c8_decode_op(void)
     case 3:
     case 4: /* intentional fallthrough */
     {
-        uint8_t x = op & 0x0f00 >> 8;
         uint8_t cmp = op & 0xff;
         if (x >= C8_REG_MAX_IDX)
         {
@@ -146,9 +194,7 @@ static void c8_decode_op(void)
     }
     case 5:
     {
-        uint8_t x = op & 0x0f00 >> 8;
-        uint8_t y = op & 0x00f0 >> 4;
-        if (x == y)
+       if (x == y)
         {
             pc += 4;
         }
@@ -156,33 +202,31 @@ static void c8_decode_op(void)
     }
     case 6:
     {
-        uint8_t x = op & 0x0f00 >> 8;
-        uint8_t val = op & 0x00ff;
         if (x >= C8_REG_MAX_IDX)
         {
             c8_fatal();
         }
         else
         {
-            v[x] = val;
+            v[x] = lobyte;
         }
         break;
     }
     case 7:
     {
-        uint8_t x = op & 0x0f00 >> 8;
-        uint8_t val = op & 0x00ff;
         if (x >= C8_REG_MAX_IDX)
         {
             c8_fatal();
         }
         else
         {
-            v[x] = v[x] + val;
+            v[x] = v[x] + lobyte;
         }
         break;
     }
     case 8:
+        uint8_t eight_nib = op & 0x000f;
+        c8_handle_eightop(x, y, eight_nib);
         break;
     case 9: 
         break;
@@ -273,7 +317,6 @@ static void c8_display(void)
     }
 #endif/
 }
-
 
 int main(int argc, char** argv)
 {
