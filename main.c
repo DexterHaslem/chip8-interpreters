@@ -7,10 +7,12 @@
 
 #define TEST_ROM_FILE ("roms/maze.ch8")
 
+#define C8_REG_MAX_IDX (15)
+
 static bool done = false;
 
 /* regs V0 - V15 */
-static uint8_t v[016];
+static uint8_t v[16];
 /* main memory 0x1000*/
 static uint8_t mem[4096];
 
@@ -24,7 +26,7 @@ static uint8_t snd;
 /* TODO: inputs */
 uint8_t inputs[16];
 
-/* TODO: cehck this depth is accurate */
+/* TODO: check this depth is accurate */
 static uint16_t stack[16];
 static uint16_t sp;
 /* note these are two words */
@@ -35,6 +37,12 @@ static uint16_t pc; /* program counter */
 static uint16_t op;
 
 static uint16_t rom_size = 0;
+
+static void c8_fatal(void)
+{
+    /* DEBUG HOOK */
+    abort();
+}
 
 static void c8_load_rom(const char* filename)
 {
@@ -74,34 +82,106 @@ static void c8_read_op(void)
 /* take a look at whatever is current in op and act upon it. updates pc */
 static void c8_decode_op(void)
 {
-    /* hi byte hi nibble / lo nibble */
-    uint8_t hinh = (op & 0xf000) >> 12;
-    uint8_t hinl = (op & 0x0f00) >> 8;
+    /*  hi nibble / lo nibble - dont forget its big endian */
+    uint8_t nib1 = (op & 0xf000) >> 12;
+    uint8_t nib2 = (op & 0x0f00) >> 8;
 
-    uint8_t hi = (op & 0xff00) >> 8;
-    uint8_t lo = op & 0x00ff;
+    uint8_t hibyte = (op & 0xff00) >> 8;
+    uint8_t lobyte = op & 0x00ff;
 
-    uint8_t lonh = lo & 0xf0;
-    uint8_t lonl = lo & 0x0f;
+	uint16_t nnn = op & 0xfff;
 
-    switch (hinh) /* get us most the way with the highest nibble */
+    uint16_t pc_start = pc;
+
+    /* most opcodes can be completely keyed off first nibble */
+    switch (nib1)
     {
     case 0:
+        /* 0NNN - call */
+        /* 00E0 - display clear */
+        /* 00EE - return from sub */
+        if (nib1 == 0)
+        {
+            if (lobyte == 0xe0)
+            {
+                c8_cls();
+            }
+            else if (lobyte == 0xee)
+            {
+                /* ret - pop stack */
+                c8_ret();
+            }
+            /* 0nnn - SYS not implemented */
+        }
         break;
     case 1:
+    {
+        /* goto 0xNNN */
+        pc = nnn;
         break;
+    }
     case 2:
+    {
+        /* call subroutine at 0xNNN */
+        ++sp;
+        stack[sp] = pc; /* TODO: check this needs to be incr before? */
+        pc = nnn;
         break;
+    }
     case 3:
+    case 4: /* intentional fallthrough */
+    {
+        uint8_t x = op & 0x0f00 >> 8;
+        uint8_t cmp = op & 0xff;
+        if (x >= C8_REG_MAX_IDX)
+        {
+            /* err */
+            c8_fatal();
+        }
+        else if ((op == 3 && v[x] == cmp) || (op == 4 && v[x] != cmp))
+        {
+		    pc += 4;
+        }
         break;
-    case 4:
-        break;
+    }
     case 5:
+    {
+        uint8_t x = op & 0x0f00 >> 8;
+        uint8_t y = op & 0x00f0 >> 4;
+        if (x == y)
+        {
+            pc += 4;
+        }
         break;
+    }
     case 6:
+    {
+        uint8_t x = op & 0x0f00 >> 8;
+        uint8_t val = op & 0x00ff;
+        if (x >= C8_REG_MAX_IDX)
+        {
+            c8_fatal();
+        }
+        else
+        {
+            v[x] = val;
+        }
         break;
+    }
     case 7:
+    {
+        uint8_t x = op & 0x0f00 >> 8;
+        uint8_t val = op & 0x00ff;
+        if (x >= C8_REG_MAX_IDX)
+        {
+            c8_fatal();
+        }
+        else
+        {
+            v[x] = v[x] + val;
+        }
         break;
+    }
     case 8:
         break;
     case 9: 
@@ -119,7 +199,12 @@ static void c8_decode_op(void)
     case 0xf:
         break;
     }
-    
+
+    /* normal exec: if pc is same, update by one inst */
+    if (pc == pc_start)
+    {
+        pc += 2;
+    }
 }
 
 static void c8_timers(void)
@@ -142,8 +227,12 @@ static void c8_cycle(void)
     c8_decode_op();
 
     c8_timers();
+
+#if 0
+    /* this wouldnt do any branching logic correctly but its useful to print out non data parts of rom */
     /* HACK: run through rom ops linearly debugging*/
     pc += 2;
+#endif
     done = pc - 512 >= rom_size || pc >= 4096;
 }
 
@@ -184,6 +273,8 @@ static void c8_display(void)
     }
 #endif/
 }
+
+
 int main(int argc, char** argv)
 {
     c8_init();

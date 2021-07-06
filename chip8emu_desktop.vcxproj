@@ -24,6 +24,7 @@
     <ProjectGuid>{27f0784d-a00d-4e63-97ba-e1100d65ff19}</ProjectGuid>
     <RootNamespace>chip8emudesktop</RootNamespace>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+    <ProjectName>chip8interp_desktop</ProjectName>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
