@@ -3,7 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
-
+#include <SDL.h>
 
 #define TEST_ROM_FILE ("roms/maze.ch8")
 
@@ -95,6 +95,8 @@ static void c8_load_rom(const char* filename)
     if (!f)
     {
         fprintf(stderr, "c8_load_rom: failed to open file '%s'!\n", filename);
+        c8_fatal();
+        /* solely for static code analysis */
         return;
     }
     
@@ -105,6 +107,7 @@ static void c8_load_rom(const char* filename)
     if (fsz > 4096 - 512)
     {
         fprintf(stderr, "c8_load_rom: file is too big: %zu\n", fsz);
+        c8_fatal();
     }
     else if (fsz > 0)
     {
@@ -431,7 +434,10 @@ static void c8_cycle(void)
     /* HACK: run through rom ops linearly debugging*/
     pc += 2;
 #endif
-    done = pc - 512 >= rom_size || pc >= 4096;
+    if (!done)
+    {
+        done = pc - 512 >= rom_size || pc >= 4096;
+    }
 }
 
 static void c8_init(void)
@@ -442,46 +448,111 @@ static void c8_init(void)
     op = 0;
 }
 
-static void c8_display(void)
+/* convert our mono bitmap to display format. this sucks, probably a better way*/
+static void c8_draw_points(SDL_Renderer *renderer)//huint8_t* target, uint8_t nbytes)
 {
-    /* our memory for screen is represented as 256 bytes in a bitmap.
-    we need to represent 64x32 here a char for each position */
-
-#if 1 /* DEBUG CONSOLE DUMP */
-    /* gross : - ( */
-    system("cls");
-
-    /* this is not (word)/byte because we dont want to overflow on our size oops */
-    for (uint32_t by = 1; by <= 256; ++by)
+#if 0
+    for (int i = 0; i < 64 * 32 * 3; ++i)
     {
-        /* for each byte, go through each bit manually on it, there is probably a more clever way but for now
-        just do things in the most obvious verbose way */
-        for (uint8_t bit = 0; bit < 8; ++bit)
-        {
-            uint8_t bitv = screenb[by - 1] & 1 << bit;
-            printf("%c", bitv ? '*' : ' ');
-        }
-
-        /* we just handled 8 pixels. every 8x8 = 64 = line*/
-        if (by % 8 == 0)
-        {
-            printf("\n");
-        }
-        /* /dont have to worry about height, we naturally run to end of bmp */
+        target[i] = 0xAA;// screenb[i % 256];
     }
-#endif/
+#endif
+    //memset(target, 0xFA, 64 * 32 * 3 - (64 * 2));
+    //target[16 * 16 * 3] = 0xFF;
+#if 0
+    for (int i = 0; i < 64 * 32 * 3; ++i)
+    {
+        target[i] = rand();
+    }
+#endif
+#if 1
+    for (uint8_t yv = 0; yv < 32; ++yv)
+    {
+        /* for each line - walk 8 bytes, each will have 8 bits = 64 pixels */
+        for (uint8_t xv = 0; xv < 8; ++xv)
+        {
+            uint8_t v = screenb[xv + yv];
+            for (uint8_t bv = 0; bv < 8; ++bv)
+            {
+                if ((v & (0x80 >> bv)) != 0)
+                {
+                    uint8_t x = xv * 8 + bv;
+                    uint8_t y = yv;
+                    int ret = SDL_RenderDrawPoint(renderer, x, y);
+                    if (ret != 0)
+                    {
+                        c8_fatal();
+                    }
+                    /* find where this is in final format. first byte is r*/
+                    //target[x + y * nbytes] = 0xFF;
+                }
+            }
+        }
+    }
+#endif
 }
 
 int main(int argc, char** argv)
 {
     (void*)argc;
     (void*)argv;
+
     c8_init();
     c8_load_rom(TEST_ROM_FILE);
 
+    SDL_Window* window = NULL;
+    SDL_Renderer* renderer;
+    SDL_Surface* window_surface = NULL;
+    SDL_Surface* c8_surface = NULL;
+    if (SDL_Init(SDL_INIT_VIDEO) < 0)
+    {
+        c8_fatal();
+        return;
+    }
+
+    SDL_CreateWindowAndRenderer(64 * 4, 32 * 4, SDL_WINDOW_SHOWN, &window, &renderer);
+    SDL_SetWindowTitle(window, "CHIP8 Interpreter");
+    window_surface = SDL_GetWindowSurface(window);
+    //SDL_Texture* texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGB24, SDL_TEXTUREACCESS_STATIC, 64, 32);
+    SDL_Event sevt;
+
+    int ret;
+
     while (!done)
     {
+        while (SDL_PollEvent(&sevt) != 0)
+        {
+            if (sevt.type == SDL_QUIT)
+            {
+                done = true;
+            }
+        }
+
+        if (gfx_dirty)
+        {
+            //SDL_UpdateTexture(texture, NULL, converted_bytes, 3 * 64);
+            //SDL_RenderCopy(renderer, texture, NULL, NULL);
+	        ret = SDL_SetRenderDrawColor(renderer, 0x00, 0x00, 0x00, 0xff);
+            ret = SDL_RenderClear(renderer);
+	        ret = SDL_SetRenderDrawColor(renderer, 0xff, 0x00, 0x00, 0xff);
+            c8_draw_points(renderer);
+            ret = SDL_RenderDrawPoint(renderer, 0, 0);
+            ret = SDL_RenderDrawPoint(renderer, 32, 16);
+            ret = SDL_RenderDrawPoint(renderer, 64, 32);
+            SDL_RenderPresent(renderer);
+#if 0
+            SDL_FillRect(window_surface, NULL, SDL_MapRGB(window_surface->format, 0x00, 0x00, 0x00));
+            SDL_UpdateWindowSurface(window);
+#endif
+            gfx_dirty = false;
+        }
+
+        SDL_Delay(25);
         c8_cycle();
     }
+
+    SDL_DestroyWindow(window);
+    SDL_DestroyRenderer(renderer);
+    SDL_Quit();
     return 0;
 }
