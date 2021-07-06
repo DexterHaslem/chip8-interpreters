@@ -92,7 +92,7 @@ static void c8_read_op(void)
 
 static void c8_handle_fop(uint8_t x, uint8_t lobyte)
 {
-    printf("c8_handle_fop: x=%x y=%x op=%x\n", x, y, lobyte);
+    printf("c8_handle_fop: x=%x op=%x\n", x, lobyte);
 }
 
 static void c8_handle_8op(uint8_t x, uint8_t y, uint8_t eightop)
