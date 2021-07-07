@@ -3,6 +3,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
+#include <time.h>
+#include <varargs.h>
 #include <SDL.h>
 
 #define TEST_ROM_FILE ("../roms/maze.ch8")
@@ -375,6 +377,7 @@ static void c8_decode_op(void)
         {
             c8_fatal();
         }
+
         int rv = rand() % 256;
         c8_debug("v%x = randbyte & 0x%02x\n", x, lobyte);
         v[x] = rv & lobyte;
@@ -385,6 +388,7 @@ static void c8_decode_op(void)
         {
             c8_fatal();
         }
+
         c8_display_sprite(v[x], v[y], last_nib);
         break;
     case 0xe:
@@ -433,14 +437,9 @@ static void c8_timers(void)
 static void c8_cycle(void)
 {
     c8_decode_op();
-
     c8_timers();
 
-#if 0
-    /* this wouldnt do any branching logic correctly but its useful to print out non data parts of rom */
-    /* HACK: run through rom ops linearly debugging*/
-    pc += 2;
-#endif
+    /* this is a safety guard to catch roms that fall off / bad */
     if (!done)
     {
         done = pc - 512 >= rom_size || pc >= 4096;
@@ -456,7 +455,7 @@ static void c8_init(void)
 }
 
 /* convert our mono bitmap to display format. this sucks, probably a better way*/
-static void c8_draw_points(SDL_Renderer *renderer)//huint8_t* target, uint8_t nbytes)
+static void c8_draw_points(SDL_Renderer *renderer)
 {
     int idx = 0;
     for (int y = 0; y < 32; ++y)
@@ -478,6 +477,8 @@ int main(int argc, char** argv)
 
     c8_init();
     c8_load_rom(TEST_ROM_FILE);
+
+    srand(time(NULL));
 
     SDL_Window* window = NULL;
     SDL_Renderer* renderer;
