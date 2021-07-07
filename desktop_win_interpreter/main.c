@@ -4,11 +4,12 @@
 
 #include "c8.h"
 
+
 static void init(SDL_Renderer* renderer)
 {
-    SDL_SetRenderDrawColor(renderer, 0x00, 0x00, 0x00, 0xff);
+    SDL_SetRenderDrawColor(renderer, 0x1f, 0x1f, 0x1f, 0xff);
 	SDL_RenderClear(renderer);
-    SDL_SetRenderDrawColor(renderer, 0xff, 0x00, 0x00, 0xff);
+    SDL_SetRenderDrawColor(renderer, 0x00, 0xc2, 0x00, 0xff);
     SDL_RenderSetScale(renderer, (float)C8_PIXEL_SCALE, (float)C8_PIXEL_SCALE);
     srand((unsigned int)time(NULL));
     c8_init();
