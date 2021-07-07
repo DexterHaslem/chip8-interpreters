@@ -43,9 +43,19 @@ static uint16_t pc; /* program counter */
 static uint16_t op;
 static uint16_t rom_size = 0;
 
+static void c8_debug(const char* fmt, ...)
+{
+#if defined _DEBUG
+    va_list vl;
+    va_start(vl, fmt);
+    vprintf(fmt, vl);
+    va_end(vl);
+#endif
+}
+
 static void c8_display_sprite(uint8_t x, uint8_t y, uint8_t nlines)
 {
-    printf("c8_display_sprite: x = 0x%x y = 0x%x nlines=%x\n", x, y, nlines);
+    c8_debug("c8_display_sprite: x = 0x%x y = 0x%x nlines=%x\n", x, y, nlines);
 
     /* flag is set if anything cleared in any loop */
     *vf = 0;
@@ -109,7 +119,7 @@ static void c8_load_rom(const char* filename)
         /* made sure its not too big, skip first sector */
         uint8_t* pmem1 = &mem[512];
         fread(pmem1, 1, fsz, f);
-        printf("c8_load_rom: loaded rom %s into memory (%zu bytes)\n", filename, fsz);
+        c8_debug("c8_load_rom: loaded rom %s into memory (%zu bytes)\n", filename, fsz);
         rom_size = (uint16_t)fsz;
     }
     fclose(f);
@@ -117,7 +127,7 @@ static void c8_load_rom(const char* filename)
 
 static void c8_handle_fop(uint8_t x, uint8_t lobyte)
 {
-    printf("c8_handle_fop: x=%x op=%x\n", x, lobyte);
+    c8_debug("c8_handle_fop: x=%x op=%x\n", x, lobyte);
     if (x >= C8_REG_MAX_IDX)
     {
         c8_fatal();
@@ -169,7 +179,7 @@ static void c8_handle_fop(uint8_t x, uint8_t lobyte)
 
 static void c8_handle_8op(uint8_t x, uint8_t y, uint8_t eightop)
 {
-    printf("c8_handle_8op: x=%x y=%x op=%x\n", x, y, eightop);
+    c8_debug("c8_handle_8op: x=%x y=%x op=%x\n", x, y, eightop);
 
     /* 0x8xyN has lots of ops - handle here */
     switch (eightop)
@@ -230,7 +240,7 @@ static void c8_decode_op(void)
 	uint8_t y = (op & 0x00f0) >> 4;
     uint8_t last_nib = op & 0x000f;
 
-    printf("c8_decode_op: ");
+    c8_debug("c8_decode_op: ");
 
     /* most opcodes can be completely keyed off first nibble */
     switch (nib1)
@@ -243,13 +253,13 @@ static void c8_decode_op(void)
         {
             if (lobyte == 0xe0)
             {
-				printf("cls\n");
+				c8_debug("cls\n");
                 memset(&screenb, 0, sizeof(screenb));
                 gfx_dirty = true;
             }
             else if (lobyte == 0xee)
             {
-                printf("ret\n");
+                c8_debug("ret\n");
                 /* ret - pop stack */
                 pc = stack[sp];
                 --sp;
@@ -262,7 +272,7 @@ static void c8_decode_op(void)
     {
         /* goto 0xNNN */
         pc = nnn;
-		printf("goto 0x%03x\n", nnn);
+		c8_debug("goto 0x%03x\n", nnn);
         break;
     }
     case 2:
@@ -276,7 +286,7 @@ static void c8_decode_op(void)
         }
         else
         {
-            printf("call 0x%03x\n", nnn);
+            c8_debug("call 0x%03x\n", nnn);
             stack[sp] = pc; /* TODO: check this needs to be incr before? */
             pc = nnn;
         }
@@ -286,7 +296,7 @@ static void c8_decode_op(void)
     case 4: /* intentional fallthrough */
     {
         uint8_t cmp = op & 0xff;
-        printf("skip next if v%x %s 0x%02x\n", x, nib1 == 3 ? "==" : "!=", cmp);
+        c8_debug("skip next if v%x %s 0x%02x\n", x, nib1 == 3 ? "==" : "!=", cmp);
         if (x >= C8_REG_MAX_IDX)
         {
             /* err */
@@ -301,7 +311,7 @@ static void c8_decode_op(void)
     }
     case 5:
     {
-        printf("skip next if v%x == v%x\n", x, y);
+        c8_debug("skip next if v%x == v%x\n", x, y);
 		if (x == y)
 		{
             /* skip next */
@@ -317,7 +327,7 @@ static void c8_decode_op(void)
         }
         else
         {
-            printf("v%x = %x\n", x, lobyte);
+            c8_debug("v%x = %x\n", x, lobyte);
             v[x] = lobyte;
         }
         break;
@@ -330,7 +340,7 @@ static void c8_decode_op(void)
         }
         else
         {
-            printf("v%x = v%x + %x\n", x, x, lobyte);
+            c8_debug("v%x = v%x + %x\n", x, x, lobyte);
             v[x] = v[x] + lobyte;
         }
         break;
@@ -343,19 +353,19 @@ static void c8_decode_op(void)
         {
             c8_fatal();
         }
-        printf("skip next if v%x != v%x\n", x, y);
+        c8_debug("skip next if v%x != v%x\n", x, y);
         if (v[x] != v[y])
         {
             pc += 4;
         }
         break;
     case 0xa:
-        printf("I = 0x%03x\n", nnn);
+        c8_debug("I = 0x%03x\n", nnn);
         i = nnn;
         break;
     case 0xb:
         /* jmp to nnn + v0 - check if we need to multiply v[0] */
-        printf("jmp to 0x%03x\n", nnn);
+        c8_debug("jmp to 0x%03x\n", nnn);
         pc = nnn + v[0];
         break;
     case 0xc:
@@ -366,7 +376,7 @@ static void c8_decode_op(void)
             c8_fatal();
         }
         int rv = rand() % 256;
-        printf("v%x = randbyte & 0x%02x\n", x, lobyte);
+        c8_debug("v%x = randbyte & 0x%02x\n", x, lobyte);
         v[x] = rv & lobyte;
         break;
     }
@@ -385,7 +395,7 @@ static void c8_decode_op(void)
             {
                 c8_fatal();
             }
-            printf("skip next if key %x pressed\n", x);
+            c8_debug("skip next if key %x pressed\n", x);
             /* TODO: */
         }
         else if (lobyte == 0xa1)
@@ -396,7 +406,7 @@ static void c8_decode_op(void)
                 c8_fatal();
             }
 
-            printf("skip next if key %x not pressed\n", x);
+            c8_debug("skip next if key %x not pressed\n", x);
             /* TODO: */
         }
         break;
