@@ -8,6 +8,8 @@
 #define TEST_ROM_FILE ("roms/maze.ch8")
 
 #define C8_REG_MAX_IDX (15)
+#define C8_CYCLE_DELAY_MS (15)
+
 
 static bool done = false;
 
@@ -18,10 +20,9 @@ static uint8_t* vf = &v[15];
 /* main memory 0x1000*/
 static uint8_t mem[4096];
 
-/* monochrome 64x32 - we can just bitmap, this would be 2048 chars otherwise.
-just use 256 bytes and bitmap it
-STRIDE: just logical display order 64 bit per line */
-static uint8_t screenb[256];
+/* monochrome 64x32 - TODO: try to cleverly bitmap instead of storing byte for each pixel. 
+makes setting a lot easier though */
+static uint8_t screenb[64*32];
 static bool gfx_dirty = false;
 
 /* countdown timers - */
@@ -43,43 +44,38 @@ static uint16_t op;
 
 static uint16_t rom_size = 0;
 
-static void c8_display_sprite(uint8_t x, uint8_t y, uint8_t nbytes)
+static void c8_display_sprite(uint8_t x, uint8_t y, uint8_t nlines)
 {
-    printf("c8_display_sprite: x = %x y = %x nbytes=%x\n", x, y, nbytes);
+    printf("c8_display_sprite: x = 0x%x y = 0x%x nlines=%x\n", x, y, nlines);
 
-    /* nbytes effectively is height of sprite */
-    uint8_t x_wrap = x % 64;
-    uint8_t y_wrap = y % 32;
+    /* flag is set if anything cleared in any loop */
+    *vf = 0;
 
-    bool any_erased = false;
-    /* TODO: check wrap */
-    /* current byte in stride (8 pixels) */
-    uint8_t pv;
-    for (uint8_t line = 0; line < nbytes; ++line)
+    /* normal 8 x nlines sprite, data starting at I */
+    /* few tricky bits - wrap across edges of overflow on x/y */
+    for (uint8_t l = 0; l < nlines; ++l)
     {
-        pv = mem[i + line];
-        for (uint8_t xv = 0; xv < 8; ++xv)
+        for (uint8_t b = 0; b < 8; ++b)
         {
-            /* look at each bit each this byte for stride, from left to right -  if set*/
-            if ((pv & (0x80 >> xv)) != 0)
+            uint8_t source_bit = (mem[i + l] >> (7 - b)) & 1;
+            if (!source_bit)
+                continue;
+            /* dont forget, we are indexing into array , need an index that will fit lol */
+            uint32_t target = ((x + b) % 64) + ((y + l) % 32) *64;
+            if (screenb[target])
             {
-                /* check first before we xor value so we can correctly set v flag for entire call*/
-                /* TODO: this does not seem right at all */
-                uint8_t bx = x_wrap + xv + ((y_wrap + line) * 64);
-                /* TODO: cehck wrapping from y height/going over edge too .. */
-
-                /* if something is set, we're about to clear it*/
-                if (screenb[bx] == 1 && !any_erased)
-                {
-                    any_erased = true;
-                }
-                screenb[bx] ^= 1;
+                screenb[target] = 0;
+                *vf = 0x01;
             }
-
+            else
+            {
+                screenb[target] = 0xff;
+            }
         }
     }
-    /* if any pixels go from 1 to 0, VF = 1, otherwise 0. if written outside, it wraps around to opposite side */
-    *vf = any_erased ? 0 : 1;
+
+    /* auto increment i ! dont forget this */
+    i += nlines;
     gfx_dirty = true;
 }
 
@@ -368,7 +364,7 @@ static void c8_decode_op(void)
         {
             c8_fatal();
         }
-        int rv = rand() % 256;
+        int rv = 1;// rand() % 256;
         printf("v%x = randbyte & 0x%02x\n", x, lobyte);
         v[x] = rv & lobyte;
         break;
@@ -451,45 +447,17 @@ static void c8_init(void)
 /* convert our mono bitmap to display format. this sucks, probably a better way*/
 static void c8_draw_points(SDL_Renderer *renderer)//huint8_t* target, uint8_t nbytes)
 {
-#if 0
-    for (int i = 0; i < 64 * 32 * 3; ++i)
+    int idx = 0;
+    for (int y = 0; y < 32; ++y)
     {
-        target[i] = 0xAA;// screenb[i % 256];
-    }
-#endif
-    //memset(target, 0xFA, 64 * 32 * 3 - (64 * 2));
-    //target[16 * 16 * 3] = 0xFF;
-#if 0
-    for (int i = 0; i < 64 * 32 * 3; ++i)
-    {
-        target[i] = rand();
-    }
-#endif
-#if 1
-    for (uint8_t yv = 0; yv < 32; ++yv)
-    {
-        /* for each line - walk 8 bytes, each will have 8 bits = 64 pixels */
-        for (uint8_t xv = 0; xv < 8; ++xv)
+        for (int x = 0; x < 64; ++x, ++idx)
         {
-            uint8_t v = screenb[xv + yv];
-            for (uint8_t bv = 0; bv < 8; ++bv)
-            {
-                if ((v & (0x80 >> bv)) != 0)
-                {
-                    uint8_t x = xv * 8 + bv;
-                    uint8_t y = yv;
-                    int ret = SDL_RenderDrawPoint(renderer, x, y);
-                    if (ret != 0)
-                    {
-                        c8_fatal();
-                    }
-                    /* find where this is in final format. first byte is r*/
-                    //target[x + y * nbytes] = 0xFF;
-                }
-            }
+			if (screenb[idx])
+			{
+				SDL_RenderDrawPoint(renderer, x, y);
+			}
         }
     }
-#endif
 }
 
 int main(int argc, char** argv)
@@ -518,8 +486,13 @@ int main(int argc, char** argv)
 
     int ret;
 
+	ret = SDL_SetRenderDrawColor(renderer, 0x00, 0x00, 0x00, 0xff);
+	ret = SDL_RenderClear(renderer);
+    ret = SDL_SetRenderDrawColor(renderer, 0xff, 0x00, 0x00, 0xff);
+
     while (!done)
     {
+        c8_cycle();
         while (SDL_PollEvent(&sevt) != 0)
         {
             if (sevt.type == SDL_QUIT)
@@ -530,15 +503,7 @@ int main(int argc, char** argv)
 
         if (gfx_dirty)
         {
-            //SDL_UpdateTexture(texture, NULL, converted_bytes, 3 * 64);
-            //SDL_RenderCopy(renderer, texture, NULL, NULL);
-	        ret = SDL_SetRenderDrawColor(renderer, 0x00, 0x00, 0x00, 0xff);
-            ret = SDL_RenderClear(renderer);
-	        ret = SDL_SetRenderDrawColor(renderer, 0xff, 0x00, 0x00, 0xff);
             c8_draw_points(renderer);
-            ret = SDL_RenderDrawPoint(renderer, 0, 0);
-            ret = SDL_RenderDrawPoint(renderer, 32, 16);
-            ret = SDL_RenderDrawPoint(renderer, 64, 32);
             SDL_RenderPresent(renderer);
 #if 0
             SDL_FillRect(window_surface, NULL, SDL_MapRGB(window_surface->format, 0x00, 0x00, 0x00));
@@ -547,8 +512,7 @@ int main(int argc, char** argv)
             gfx_dirty = false;
         }
 
-        SDL_Delay(25);
-        c8_cycle();
+        SDL_Delay(C8_CYCLE_DELAY_MS);
     }
 
     SDL_DestroyWindow(window);
