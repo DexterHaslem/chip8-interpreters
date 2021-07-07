@@ -8,8 +8,8 @@
 #define TEST_ROM_FILE ("roms/maze.ch8")
 
 #define C8_REG_MAX_IDX (15)
-#define C8_CYCLE_DELAY_MS (15)
-
+#define C8_CYCLE_DELAY_MS (4)
+#define C8_PIXEL_SCALE (6)
 
 static bool done = false;
 
@@ -21,7 +21,7 @@ static uint8_t* vf = &v[15];
 static uint8_t mem[4096];
 
 /* monochrome 64x32 - TODO: try to cleverly bitmap instead of storing byte for each pixel. 
-makes setting a lot easier though */
+makes setting and reading lot easier though */
 static uint8_t screenb[64*32];
 static bool gfx_dirty = false;
 
@@ -30,7 +30,7 @@ static uint8_t delay;
 static uint8_t snd;
 
 /* TODO: inputs */
-uint8_t inputs[16];
+static uint8_t inputs[16];
 
 /* TODO: check this depth is accurate */
 static uint16_t stack[16];
@@ -41,7 +41,6 @@ static uint16_t pc; /* program counter */
 
 /* current opcode */
 static uint16_t op;
-
 static uint16_t rom_size = 0;
 
 static void c8_display_sprite(uint8_t x, uint8_t y, uint8_t nlines)
@@ -246,6 +245,7 @@ static void c8_decode_op(void)
             {
 				printf("cls\n");
                 memset(&screenb, 0, sizeof(screenb));
+                gfx_dirty = true;
             }
             else if (lobyte == 0xee)
             {
@@ -254,6 +254,7 @@ static void c8_decode_op(void)
                 pc = stack[sp];
                 --sp;
             }
+
             /* 0nnn - SYS not implemented */
         }
         break;
@@ -364,7 +365,7 @@ static void c8_decode_op(void)
         {
             c8_fatal();
         }
-        int rv = 1;// rand() % 256;
+        int rv = rand() % 256;
         printf("v%x = randbyte & 0x%02x\n", x, lobyte);
         v[x] = rv & lobyte;
         break;
@@ -472,13 +473,14 @@ int main(int argc, char** argv)
     SDL_Renderer* renderer;
     SDL_Surface* window_surface = NULL;
     SDL_Surface* c8_surface = NULL;
+
     if (SDL_Init(SDL_INIT_VIDEO) < 0)
     {
         c8_fatal();
         return;
     }
 
-    SDL_CreateWindowAndRenderer(64 * 4, 32 * 4, SDL_WINDOW_SHOWN, &window, &renderer);
+    SDL_CreateWindowAndRenderer(64 * (C8_PIXEL_SCALE), 32 * (C8_PIXEL_SCALE), SDL_WINDOW_SHOWN, &window, &renderer);
     SDL_SetWindowTitle(window, "CHIP8 Interpreter");
     window_surface = SDL_GetWindowSurface(window);
     //SDL_Texture* texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGB24, SDL_TEXTUREACCESS_STATIC, 64, 32);
@@ -489,6 +491,8 @@ int main(int argc, char** argv)
 	ret = SDL_SetRenderDrawColor(renderer, 0x00, 0x00, 0x00, 0xff);
 	ret = SDL_RenderClear(renderer);
     ret = SDL_SetRenderDrawColor(renderer, 0xff, 0x00, 0x00, 0xff);
+
+    SDL_RenderSetScale(renderer, (C8_PIXEL_SCALE), (C8_PIXEL_SCALE));
 
     while (!done)
     {
