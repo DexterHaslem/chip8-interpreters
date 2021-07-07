@@ -14,7 +14,7 @@
 //#define TEST_ROM_FILE ("../roms/maze.ch8")
 
 #define C8_REG_MAX_IDX          (15)
-#define C8_PIXEL_SCALE          (6)
+#define C8_PIXEL_SCALE          (8)
 #define C8_CYCLES_PER_FRAME     (15)
 #define C8_FRAME_DELAY_MS       (16)
 

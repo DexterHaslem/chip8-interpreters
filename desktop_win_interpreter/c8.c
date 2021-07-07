@@ -477,7 +477,6 @@ static void c8_draw_points(SDL_Renderer* renderer)
         {
             if (screenb[idx])
             {
-
                 SDL_RenderDrawPoint(renderer, x, y);
             }
         }
