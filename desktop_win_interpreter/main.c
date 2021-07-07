@@ -5,7 +5,7 @@
 #include <stdbool.h>
 #include <SDL.h>
 
-#define TEST_ROM_FILE ("roms/maze.ch8")
+#define TEST_ROM_FILE ("../roms/maze.ch8")
 
 #define C8_REG_MAX_IDX (15)
 #define C8_CYCLE_DELAY_MS (4)
