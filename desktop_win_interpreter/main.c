@@ -1,3 +1,7 @@
+/* simple CHIP-8 interpreter just for fun
+	Dexter Haslem <dmh@fastmail.com> 2021
+*/
+
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -7,13 +11,19 @@
 #include <varargs.h>
 #include <SDL.h>
 
-#define TEST_ROM_FILE ("../roms/maze.ch8")
+#define C8_WIDTH (64)
+#define C8_HEIGHT (32)
 
-#define C8_REG_MAX_IDX (15)
-#define C8_CYCLE_DELAY_MS (4)
-#define C8_PIXEL_SCALE (6)
+//#define TEST_ROM_FILE ("../roms/maze.ch8")
+
+#define C8_REG_MAX_IDX          (15)
+#define C8_PIXEL_SCALE          (6)
+#define C8_CYCLES_PER_FRAME     (15)
+#define C8_FRAME_DELAY_MS       (16)
 
 static bool done = false;
+static bool initd = false;
+static bool rom_loaded = false;
 
 /* regs V0 - V15  (VF in hex). VF is flag register*/
 static uint8_t v[16];
@@ -24,10 +34,10 @@ static uint8_t mem[4096];
 
 /* monochrome 64x32 - TODO: try to cleverly bitmap instead of storing byte for each pixel. 
 makes setting and reading lot easier though */
-static uint8_t screenb[64*32];
+static uint8_t screenb[C8_WIDTH * C8_HEIGHT];
 static bool gfx_dirty = false;
 
-/* countdown timers - */
+/* c8 countdown timers - */
 static uint8_t delay;
 static uint8_t snd;
 
@@ -42,7 +52,7 @@ static uint16_t i; /* index reg */
 static uint16_t pc; /* program counter */
 
 /* current opcode */
-static uint16_t op;
+//static uint16_t op;
 static uint16_t rom_size = 0;
 
 static void c8_debug(const char* fmt, ...)
@@ -72,7 +82,7 @@ static void c8_display_sprite(uint8_t x, uint8_t y, uint8_t nlines)
             if (!source_bit)
                 continue;
             /* dont forget, we are indexing into array , need an index that will fit lol */
-            uint32_t target = ((x + b) % 64) + ((y + l) % 32) *64;
+            uint32_t target = ((x + b) % C8_WIDTH) + ((y + l) % C8_HEIGHT) * C8_WIDTH;
             if (screenb[target])
             {
                 screenb[target] = 0;
@@ -98,6 +108,9 @@ static void c8_fatal(void)
 
 static void c8_load_rom(const char* filename)
 {
+    rom_size = 0;
+    rom_loaded = false;
+
     FILE *f = fopen(filename, "rb");
     if (!f)
     {
@@ -125,6 +138,7 @@ static void c8_load_rom(const char* filename)
         rom_size = (uint16_t)fsz;
     }
     fclose(f);
+    rom_loaded = true;
 }
 
 static void c8_handle_fop(uint8_t x, uint8_t lobyte)
@@ -229,20 +243,21 @@ static void c8_handle_8op(uint8_t x, uint8_t y, uint8_t eightop)
 /* take a look at whatever is current in op and act upon it. updates pc */
 static void c8_decode_op(void)
 {
-    op = (mem[pc] << 8) + mem[pc + 1];
+    const uint16_t op = (mem[pc] << 8) + mem[pc + 1];
+
     /* we read it, increment right away. makes jumping around below easier */
     pc += 2;
 
     /*  hi nibble / lo nibble - dont forget its big endian */
-    uint8_t nib1 = (op & 0xf000) >> 12;
-    uint8_t lobyte = op & 0x00ff;
+    const uint8_t nib1 = (op & 0xf000) >> 12;
+    const uint8_t lobyte = op & 0x00ff;
 
-	uint16_t nnn = op & 0x0fff;
-	uint8_t x = (op & 0x0f00) >> 8;
-	uint8_t y = (op & 0x00f0) >> 4;
-    uint8_t last_nib = op & 0x000f;
+	const uint16_t nnn = op & 0x0fff;
+	const uint8_t x = (op & 0x0f00) >> 8;
+	const uint8_t y = (op & 0x00f0) >> 4;
+    const uint8_t last_nib = op & 0x000f;
 
-    c8_debug("c8_decode_op: ");
+    c8_debug("c8_decode_op: raw=%04x - ", op);
 
     /* most opcodes can be completely keyed off first nibble */
     switch (nib1)
@@ -355,6 +370,7 @@ static void c8_decode_op(void)
         {
             c8_fatal();
         }
+
         c8_debug("skip next if v%x != v%x\n", x, y);
         if (v[x] != v[y])
         {
@@ -378,7 +394,7 @@ static void c8_decode_op(void)
             c8_fatal();
         }
 
-        int rv = rand() % 256;
+        uint8_t rv = rand() % 256;
         c8_debug("v%x = randbyte & 0x%02x\n", x, lobyte);
         v[x] = rv & lobyte;
         break;
@@ -448,26 +464,44 @@ static void c8_cycle(void)
 
 static void c8_init(void)
 {
+    /* reset all memory incase something was left oevr from previous rom */
+    memset(screenb, 0, sizeof(screenb));
+
+    /* TODO: load any fonts into sector */
+
     pc = 512; /* skip first sector - orig had chip8 vm, modern puts fonts in there */
     i = 0;
     sp = 0;
-    op = 0;
 }
 
 /* convert our mono bitmap to display format. this sucks, probably a better way*/
 static void c8_draw_points(SDL_Renderer *renderer)
 {
+	/* offset slightly into our buffer area for border*/
     int idx = 0;
-    for (int y = 0; y < 32; ++y)
+
+    for (int y = 0; y < C8_HEIGHT; ++y)
     {
-        for (int x = 0; x < 64; ++x, ++idx)
+        for (int x = 0; x < C8_WIDTH; ++x, ++idx)
         {
 			if (screenb[idx])
 			{
+
 				SDL_RenderDrawPoint(renderer, x, y);
 			}
         }
     }
+}
+
+static void init(SDL_Renderer* renderer)
+{
+    SDL_SetRenderDrawColor(renderer, 0x00, 0x00, 0x00, 0xff);
+	SDL_RenderClear(renderer);
+    SDL_SetRenderDrawColor(renderer, 0xff, 0x00, 0x00, 0xff);
+    SDL_RenderSetScale(renderer, (float)C8_PIXEL_SCALE, (float)C8_PIXEL_SCALE);
+    srand((unsigned int)time(NULL));
+    c8_init();
+    initd = true;
 }
 
 int main(int argc, char** argv)
@@ -475,10 +509,7 @@ int main(int argc, char** argv)
     (void*)argc;
     (void*)argv;
 
-    c8_init();
-    c8_load_rom(TEST_ROM_FILE);
-
-    srand(time(NULL));
+    //c8_load_rom(TEST_ROM_FILE);
 
     SDL_Window* window = NULL;
     SDL_Renderer* renderer;
@@ -489,27 +520,52 @@ int main(int argc, char** argv)
         return -1;
     }
 
-    SDL_CreateWindowAndRenderer(64 * (C8_PIXEL_SCALE), 32 * (C8_PIXEL_SCALE), SDL_WINDOW_SHOWN, &window, &renderer);
-    SDL_SetWindowTitle(window, "CHIP8 Interpreter");
+    /* create the window at scale, with buffer for border */
+    SDL_CreateWindowAndRenderer((int)(C8_WIDTH * C8_PIXEL_SCALE), 
+        (int)(C8_HEIGHT * (C8_PIXEL_SCALE)), SDL_WINDOW_SHOWN, &window, &renderer);
+
+    if (!window || !renderer)
+    {
+        c8_fatal();
+        return -1;
+    }
+
+    SDL_SetWindowTitle(window, "CHIP8 Interp - Drag a ROM onto me!");
+    SDL_EventState(SDL_DROPFILE, SDL_ENABLE);
+
     SDL_Event sevt;
-
-    int ret;
-
-	ret = SDL_SetRenderDrawColor(renderer, 0x00, 0x00, 0x00, 0xff);
-	ret = SDL_RenderClear(renderer);
-    ret = SDL_SetRenderDrawColor(renderer, 0xff, 0x00, 0x00, 0xff);
-
-    SDL_RenderSetScale(renderer, (C8_PIXEL_SCALE), (C8_PIXEL_SCALE));
 
     while (!done)
     {
-        c8_cycle();
         while (SDL_PollEvent(&sevt) != 0)
         {
-            if (sevt.type == SDL_QUIT)
+            switch (sevt.type)
             {
+            case SDL_QUIT:
                 done = true;
+                break;
+            case SDL_DROPFILE:
+                c8_debug(sevt.drop.file);
+                c8_load_rom(sevt.drop.file);
+                if (rom_loaded)
+                {
+                    /* call full init. we want to clear anything left over */
+	                init(renderer);
+                }
+                SDL_free(sevt.drop.file);
+                break;
             }
+        }
+
+        if (!initd || !rom_loaded)
+        {
+            SDL_Delay(100);
+            continue;
+        }
+
+        for (int x = 0; x < C8_CYCLES_PER_FRAME; ++x)
+        {
+            c8_cycle();
         }
 
         if (gfx_dirty)
@@ -519,7 +575,7 @@ int main(int argc, char** argv)
             gfx_dirty = false;
         }
 
-        SDL_Delay(C8_CYCLE_DELAY_MS);
+		SDL_Delay(C8_FRAME_DELAY_MS);
     }
 
     SDL_DestroyWindow(window);
