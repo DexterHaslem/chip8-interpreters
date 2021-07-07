@@ -481,19 +481,15 @@ int main(int argc, char** argv)
 
     SDL_Window* window = NULL;
     SDL_Renderer* renderer;
-    SDL_Surface* window_surface = NULL;
-    SDL_Surface* c8_surface = NULL;
 
     if (SDL_Init(SDL_INIT_VIDEO) < 0)
     {
         c8_fatal();
-        return;
+        return -1;
     }
 
     SDL_CreateWindowAndRenderer(64 * (C8_PIXEL_SCALE), 32 * (C8_PIXEL_SCALE), SDL_WINDOW_SHOWN, &window, &renderer);
     SDL_SetWindowTitle(window, "CHIP8 Interpreter");
-    window_surface = SDL_GetWindowSurface(window);
-    //SDL_Texture* texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGB24, SDL_TEXTUREACCESS_STATIC, 64, 32);
     SDL_Event sevt;
 
     int ret;
@@ -519,10 +515,6 @@ int main(int argc, char** argv)
         {
             c8_draw_points(renderer);
             SDL_RenderPresent(renderer);
-#if 0
-            SDL_FillRect(window_surface, NULL, SDL_MapRGB(window_surface->format, 0x00, 0x00, 0x00));
-            SDL_UpdateWindowSurface(window);
-#endif
             gfx_dirty = false;
         }
 
