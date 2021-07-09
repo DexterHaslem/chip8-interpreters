@@ -18,10 +18,11 @@ be ported to linux/mac as there is no windows specific stuff not
 handled by SDL2 to my knowledge, but I haven't tried it yet.
 
 
+## TODO
 
-## EFM8SB1
-WIP
+I was originally planning on trying to port to some smaller 8bit micros (PIC16F, EFM8 etc) 
+without realizing they do not have enough memory to run interesting roms and i'd have to 
+bake one in. 
 
-
-## PIC16F18346 + SSD1306
-WIP
+I'll look at bigger micros, likely something like the [sipeed longan nano](https://longan.sipeed.com/en/#what-is-longan)
+because it's beefy enough and has a screen built right in! It's also got a sd interface for loading roms and fonts.. tempting
