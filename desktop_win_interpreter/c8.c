@@ -191,25 +191,31 @@ static void c8_handle_8op(uint8_t x, uint8_t y, uint8_t eightop)
         v[x] = v[x] ^ v[y];
         break;
     case 4:
+    {
         bool carry = v[x] + v[y] > 255;
         *vf = carry;
         v[x] = v[x] + v[y];
         break;
+    }
     case 5:
+    {
         bool borrow = v[x] > v[y];
         *vf = borrow;
         v[x] = v[x] - v[y];
         break;
+    }
     case 6:
         /* TODO: check if flag is before or after */
         *vf = (v[x] & 1) == 1;
         v[x] = v[x] >> 1;
         break;
     case 7:
+    {
         bool nborrow = v[y] > v[x];
         *vf = nborrow;
         v[x] = v[y] - v[x];
         break;
+    }
     case 0xe:
         /* TODO: check if flag is before or after */
         *vf = (v[x] & 128) != 0;

@@ -54,6 +54,7 @@ int main(int argc, char** argv)
                 done = true;
                 break;
             case SDL_DROPFILE:
+            {
                 bool loaded_ok = c8_load_rom(sevt.drop.file);
                 if (loaded_ok)
                 {
@@ -62,6 +63,7 @@ int main(int argc, char** argv)
                 }
                 SDL_free(sevt.drop.file);
                 break;
+            }
             case SDL_KEYUP:
                 //printf("key up %u\n", sevt.key.keysym.sym);
                 break;

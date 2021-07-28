@@ -5,7 +5,7 @@
 #include <string.h>
 #include <stdbool.h>
 #include <time.h>
-#include <varargs.h>
+#include <stdarg.h>
 #include <SDL.h>
 
 #define C8_WIDTH (64)
